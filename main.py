@@ -319,8 +319,8 @@ def predict_next_note(
 
   return int(pitch), float(step), float(duration)
 
-temperature = 2.0
-num_predictions = 120
+temperature = 1.0
+num_predictions = 520
 
 sample_notes = np.stack([raw_notes[key] for key in key_order], axis=1)
 
