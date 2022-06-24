@@ -13,6 +13,8 @@ from IPython import display
 from matplotlib import pyplot as plt
 from typing import Dict, List, Optional, Sequence, Tuple
 
+from read_composer import get_composer_midi
+
 
 seed = 42
 tf.random.set_seed(seed)
@@ -156,9 +158,16 @@ example_pm = notes_to_midi(raw_notes, out_file=example_file, instrument_name=ins
 # Create the training dataset
 num_files = 5
 all_notes = []
-for f in filenames[:10]:  # :num_files
-    notes = midi_to_notes(f)
+# get the first num_files files
+# for f in filenames[:num_files]:
+#     notes = midi_to_notes(f)                                                                                                                                                              
+#     all_notes.append(notes)
+
+# get all files from a composer
+for f in get_composer_midi("Ludwig van Beethoven"):
+    notes = midi_to_notes(f)                                                                                                                                                              
     all_notes.append(notes)
+    glob.glob(str(data_dir/'**/*.mid*'))
 
 all_notes = pd.concat(all_notes)
 n_notes = len(all_notes)
@@ -279,7 +288,7 @@ callbacks = [
         restore_best_weights=True),
 ]
 
-epochs = 20
+epochs = 1
 
 history = model.fit(
     train_ds,
@@ -319,7 +328,7 @@ def predict_next_note(
 
   return int(pitch), float(step), float(duration)
 
-temperature = 1.0
+temperature = 1.3
 num_predictions = 520
 
 sample_notes = np.stack([raw_notes[key] for key in key_order], axis=1)
@@ -348,3 +357,4 @@ out_pm = notes_to_midi(generated_notes, out_file=out_file, instrument_name=instr
 
 plot_piano_roll(generated_notes)
 plot_distributions(generated_notes)
+model.save('model')
