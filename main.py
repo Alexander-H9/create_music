@@ -14,7 +14,8 @@ from matplotlib import pyplot as plt
 from typing import Dict, List, Optional, Sequence, Tuple
 
 from read_composer import get_composer_midi
-
+from config import Config
+config = Config()
 
 seed = 42
 tf.random.set_seed(seed)
@@ -35,11 +36,11 @@ if not data_dir.exists():
 filenames = glob.glob(str(data_dir/'**/*.mid*'))
 print('Number of files:', len(filenames))
 
-sample_file = filenames[1]
+sample_file = filenames[0]
 
 # get a specific fample file
 for file in filenames:
-    if file == "data\\maestro-v2.0.0\\" + "2017\\MIDI-Unprocessed_079_PIANO079_MID--AUDIO-split_07-09-17_Piano-e_1-04_wav--3.midi":
+    if file == "data\\maestro-v2.0.0\\" + "2013\\ORIG-MIDI_01_7_7_13_Group__MID--AUDIO_12_R1_2013_wav--2.midi":
         sample_file = file
         print("FOUND THE FILE")
         break
@@ -171,10 +172,9 @@ all_notes = []
 #     all_notes.append(notes)
 
 # get all files from a composer
-for f in get_composer_midi("Ludwig van Beethoven"):
+for f in get_composer_midi("Wolfgang Amadeus Mozart"):
     notes = midi_to_notes(f)                                                                                                                                                              
     all_notes.append(notes)
-    glob.glob(str(data_dir/'**/*.mid*'))
 
 all_notes = pd.concat(all_notes)
 n_notes = len(all_notes)
@@ -217,158 +217,161 @@ def create_sequences(
 
   return sequences.map(split_labels, num_parallel_calls=tf.data.AUTOTUNE)
 
-seq_length = 25
-vocab_size = 128
-seq_ds = create_sequences(notes_ds, seq_length, vocab_size)
-seq_ds.element_spec
 
-# for seq, target in seq_ds.take(1):
-#     print('sequence shape:', seq.shape)
-#     print('sequence elements (first 10):', seq[0: 10])
-#     print()
-#     print('target:', target)
+for idx in range(len(config.grid_params["seq_length"])):
 
-batch_size = 64
-buffer_size = n_notes - seq_length  # the number of items in the dataset
-train_ds = (seq_ds
-            .shuffle(buffer_size)
-            .batch(batch_size, drop_remainder=True)
-            .cache()
-            .prefetch(tf.data.experimental.AUTOTUNE))
+    seq_length = config.grid_params["seq_length"][idx]   # 50
+    vocab_size = 128
+    seq_ds = create_sequences(notes_ds, seq_length, vocab_size)
+    seq_ds.element_spec
 
-train_ds.element_spec
+    # for seq, target in seq_ds.take(1):
+    #     print('sequence shape:', seq.shape)
+    #     print('sequence elements (first 10):', seq[0: 10])
+    #     print()
+    #     print('target:', target)
 
-def mse_with_positive_pressure(y_true: tf.Tensor, y_pred: tf.Tensor):
-    mse = (y_true - y_pred) ** 2
-    positive_pressure = 10 * tf.maximum(-y_pred, 0.0)
-    return tf.reduce_mean(mse + positive_pressure)
+    batch_size = config.grid_params["batch_size"][idx]      # 64
+    buffer_size = n_notes - seq_length  # the number of items in the dataset
+    train_ds = (seq_ds
+                .shuffle(buffer_size)
+                .batch(batch_size, drop_remainder=True)
+                .cache()
+                .prefetch(tf.data.experimental.AUTOTUNE))
 
+    train_ds.element_spec
 
-input_shape = (seq_length, 3)
-learning_rate = 0.005
-
-inputs = tf.keras.Input(input_shape)
-x = tf.keras.layers.LSTM(128)(inputs)
+    def mse_with_positive_pressure(y_true: tf.Tensor, y_pred: tf.Tensor):
+        mse = (y_true - y_pred) ** 2
+        positive_pressure = 10 * tf.maximum(-y_pred, 0.0)
+        return tf.reduce_mean(mse + positive_pressure)
 
 
-outputs = {
-  'pitch': tf.keras.layers.Dense(128, name='pitch')(x),
-  'step': tf.keras.layers.Dense(1, name='step')(x),
-  'duration': tf.keras.layers.Dense(1, name='duration')(x),
-}
+    input_shape = (seq_length, 3)
+    learning_rate = config.grid_params["learning_rate"][idx]    # 0.004
 
-model = tf.keras.Model(inputs, outputs)
-
-loss = {
-      'pitch': tf.keras.losses.SparseCategoricalCrossentropy(
-          from_logits=True),
-      'step': mse_with_positive_pressure,
-      'duration': mse_with_positive_pressure,
-}
-
-optimizer = tf.keras.optimizers.Adam(learning_rate=learning_rate)
-
-model.compile(
-    loss=loss,
-    loss_weights={
-        'pitch': 0.05,
-        'step': 1.0,
-        'duration':1.0,
-    },
-    optimizer=optimizer,
-)
-
-model.compile(loss=loss, optimizer=optimizer)
-
-model.summary()
-
-losses = model.evaluate(train_ds, return_dict=True)
-print(losses)
-
-callbacks = [
-    tf.keras.callbacks.ModelCheckpoint(
-        filepath='./training_checkpoints/ckpt_{epoch}',
-        save_weights_only=True),
-    tf.keras.callbacks.EarlyStopping(
-        monitor='loss',
-        patience=5,
-        verbose=1,
-        restore_best_weights=True),
-]
-
-epochs = 50
-
-history = model.fit(
-    train_ds,
-    epochs=epochs,
-    callbacks=callbacks,
-)
+    inputs = tf.keras.Input(input_shape)
+    x = tf.keras.layers.LSTM(config.grid_params["neurons"][idx])(inputs)   # 128
 
 
-plt.plot(history.epoch, history.history['loss'], label='total loss')
-plt.show()
+    outputs = {
+    'pitch': tf.keras.layers.Dense(128, name='pitch')(x),
+    'step': tf.keras.layers.Dense(1, name='step')(x),
+    'duration': tf.keras.layers.Dense(1, name='duration')(x),
+    }
 
-def predict_next_note(
-    notes: np.ndarray, 
-    keras_model: tf.keras.Model, 
-    temperature: float = 1.0) -> int:
-  """Generates a note IDs using a trained sequence model."""
+    model = tf.keras.Model(inputs, outputs)
 
-  assert temperature > 0
+    loss = {
+        'pitch': tf.keras.losses.SparseCategoricalCrossentropy(
+            from_logits=True),
+        'step': mse_with_positive_pressure,
+        'duration': mse_with_positive_pressure,
+    }
 
-  # Add batch dimension
-  inputs = tf.expand_dims(notes, 0)
+    optimizer = tf.keras.optimizers.Adam(learning_rate=learning_rate)
 
-  predictions = model.predict(inputs)
-  pitch_logits = predictions['pitch']
-  step = predictions['step']
-  duration = predictions['duration']
+    model.compile(
+        loss=loss,
+        loss_weights={
+            'pitch': 0.05,
+            'step': 1.0,
+            'duration':1.0,
+        },
+        optimizer=optimizer,
+    )
 
-  pitch_logits /= temperature
-  pitch = tf.random.categorical(pitch_logits, num_samples=1)
-  pitch = tf.squeeze(pitch, axis=-1)
-  duration = tf.squeeze(duration, axis=-1)
-  step = tf.squeeze(step, axis=-1)
+    model.compile(loss=loss, optimizer=optimizer)
 
-  # `step` and `duration` values should be non-negative
-  step = tf.maximum(0, step)
-  duration = tf.maximum(0, duration)
+    #model.summary()
 
-  return int(pitch), float(step), float(duration)
+    # losses = model.evaluate(train_ds, return_dict=True)
+    # print(losses)
 
-temperature = 1.0
-num_predictions = 520
+    callbacks = [
+        tf.keras.callbacks.EarlyStopping(
+            monitor='loss',
+            patience=10,
+            verbose=1,
+            restore_best_weights=True),
+    ]
 
-sample_notes = np.stack([raw_notes[key] for key in key_order], axis=1)
+    epochs = 3000
 
-out_file = 'raw_notes.mid'
-out_pm = notes_to_midi(raw_notes, out_file=out_file, instrument_name=instrument_name)
+    history = model.fit(
+        train_ds,
+        epochs=epochs,
+        callbacks=callbacks,
+    )
 
-# The initial sequence of notes; pitch is normalized similar to training
-# sequences
-input_notes = (sample_notes[:seq_length] / np.array([vocab_size, 1, 1]))
+    # Plot the train loss
+    # plt.plot(history.epoch, history.history['loss'], label='total loss')
+    # plt.show()
 
-out_file_input_notes = 'sequence_notes.mid'
-out_pm = notes_to_midi(raw_notes[:seq_length], out_file=out_file_input_notes, instrument_name=instrument_name)
+    def predict_next_note(
+        notes: np.ndarray, 
+        keras_model: tf.keras.Model, 
+        temperature: float = 1.0) -> int:
+        """Generates a note IDs using a trained sequence model."""
 
-generated_notes = []
-prev_start = 0
-for _ in range(num_predictions):
-  pitch, step, duration = predict_next_note(input_notes, model, temperature)
-  start = prev_start + step
-  end = start + duration
-  input_note = (pitch, step, duration)
-  generated_notes.append((*input_note, start, end))
-  input_notes = np.delete(input_notes, 0, axis=0)
-  input_notes = np.append(input_notes, np.expand_dims(input_note, 0), axis=0)
-  prev_start = start
+        assert temperature > 0
 
-generated_notes = pd.DataFrame(generated_notes, columns=(*key_order, 'start', 'end'))
+        # Add batch dimension
+        inputs = tf.expand_dims(notes, 0)
+
+        predictions = model.predict(inputs)
+        pitch_logits = predictions['pitch']
+        step = predictions['step']
+        duration = predictions['duration']
+
+        pitch_logits /= temperature
+        pitch = tf.random.categorical(pitch_logits, num_samples=1)
+        pitch = tf.squeeze(pitch, axis=-1)
+        duration = tf.squeeze(duration, axis=-1)
+        step = tf.squeeze(step, axis=-1)
+
+        # `step` and `duration` values should be non-negative
+        step = tf.maximum(0, step)
+        duration = tf.maximum(0, duration)
+
+        return int(pitch), float(step), float(duration)
+
+    temperature = 1.5
+    num_predictions = 100
+
+    sample_notes = np.stack([raw_notes[key] for key in key_order], axis=1)
+
+    out_file = 'raw_notes.mid'
+    out_pm = notes_to_midi(raw_notes, out_file=out_file, instrument_name=instrument_name)
+
+    # The initial sequence of notes; pitch is normalized similar to training
+    # sequences
+    input_notes = (sample_notes[:seq_length] / np.array([vocab_size, 1, 1]))
+
+    out_file_input_notes = 'sequence_notes.mid'
+    input_pm = notes_to_midi(raw_notes[:seq_length], out_file=out_file_input_notes, instrument_name=instrument_name)
+
+    generated_notes = []
+    prev_start = 0
+    for _ in range(num_predictions):
+        pitch, step, duration = predict_next_note(input_notes, model, temperature)
+        start = prev_start + step
+        end = start + duration
+        input_note = (pitch, step, duration)
+        generated_notes.append((*input_note, start, end))
+        input_notes = np.delete(input_notes, 0, axis=0)
+        input_notes = np.append(input_notes, np.expand_dims(input_note, 0), axis=0)
+        prev_start = start
+
+    generated_notes = pd.DataFrame(generated_notes, columns=(*key_order, 'start', 'end'))
 
 
-out_file = 'output.mid'
-out_pm = notes_to_midi(generated_notes, out_file=out_file, instrument_name=instrument_name)
+    out_file = 'output.mid'
+    out_pm = notes_to_midi(generated_notes, out_file=out_file, instrument_name=instrument_name)
 
-plot_piano_roll(generated_notes)
-plot_distributions(generated_notes)
-model.save('model')
+    # plot_piano_roll(generated_notes)
+    # plot_distributions(generated_notes)
+
+
+
+    config.save_training("Checkpoints_" + str(idx), input_pm, out_pm, model, history, generated_notes, raw_notes)
