@@ -4,13 +4,25 @@ import tensorflow as tf
 import numpy as np
 import pandas as pd
 
-from main import midi_to_notes, notes_to_midi
+from midi_processing import midi_to_notes, notes_to_midi
+
+def mse_with_positive_pressure(y_true: tf.Tensor, y_pred: tf.Tensor):
+	mse = (y_true - y_pred) ** 2
+	positive_pressure = 10 * tf.maximum(-y_pred, 0.0)
+	return tf.reduce_mean(mse + positive_pressure)
+
+loss = {
+      'pitch': tf.keras.losses.SparseCategoricalCrossentropy(
+          from_logits=True),
+      'step': mse_with_positive_pressure,
+      'duration': mse_with_positive_pressure,
+}
 
 data_dir = pathlib.Path('data/maestro-v2.0.0')
-filenames = glob.glob(str(data_dir/'**/*.mid*'))
-model = tf.keras.models.load_model('path/to/location')
+filenames = glob.glob(str(data_dir/'2017/MIDI-Unprocessed_082_PIANO082_MID--AUDIO-split_07-09-17_Piano-e_2_-04_wav--1.midi'))
+model = tf.keras.models.load_model('model', custom_objects={"mse_with_positive_pressure": mse_with_positive_pressure})
 key_order = ['pitch', 'step', 'duration']
-sample_file = filenames[1]
+sample_file = filenames[0]
 raw_notes = midi_to_notes(sample_file)
 seq_length = 25
 vocab_size = 128
@@ -68,5 +80,5 @@ for _ in range(num_predictions):
 generated_notes = pd.DataFrame(generated_notes, columns=(*key_order, 'start', 'end'))
 
 
-out_file = 'output.mid'
+out_file = 'output_prediction.mid'
 out_pm = notes_to_midi(generated_notes, out_file=out_file, instrument_name=instrument_name)

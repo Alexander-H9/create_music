@@ -36,7 +36,15 @@ filenames = glob.glob(str(data_dir/'**/*.mid*'))
 print('Number of files:', len(filenames))
 
 sample_file = filenames[1]
-#print(sample_file)
+
+# get a specific fample file
+for file in filenames:
+    if file == "data\\maestro-v2.0.0\\" + "2017\\MIDI-Unprocessed_079_PIANO079_MID--AUDIO-split_07-09-17_Piano-e_1-04_wav--3.midi":
+        sample_file = file
+        print("FOUND THE FILE")
+        break
+
+print(sample_file)
 
 pm = pretty_midi.PrettyMIDI(sample_file)
 
@@ -60,25 +68,25 @@ instrument_name = pretty_midi.program_to_instrument_name(instrument.program)
 #         f' duration={duration:.4f}')
 
 def midi_to_notes(midi_file: str) -> pd.DataFrame:
-  pm = pretty_midi.PrettyMIDI(midi_file)
-  instrument = pm.instruments[0]
-  notes = collections.defaultdict(list)
+    pm = pretty_midi.PrettyMIDI(midi_file)
+    instrument = pm.instruments[0]
+    notes = collections.defaultdict(list)
 
   # Sort the notes by start time
-  sorted_notes = sorted(instrument.notes, key=lambda note: note.start)
-  prev_start = sorted_notes[0].start
+    sorted_notes = sorted(instrument.notes, key=lambda note: note.start)
+    prev_start = sorted_notes[0].start
 
-  for note in sorted_notes:
-    start = note.start
-    end = note.end
-    notes['pitch'].append(note.pitch)
-    notes['start'].append(start)
-    notes['end'].append(end)
-    notes['step'].append(start - prev_start)
-    notes['duration'].append(end - start)
-    prev_start = start
+    for note in sorted_notes:
+        start = note.start
+        end = note.end
+        notes['pitch'].append(note.pitch)
+        notes['start'].append(start)
+        notes['end'].append(end)
+        notes['step'].append(start - prev_start)
+        notes['duration'].append(end - start)
+        prev_start = start
 
-  return pd.DataFrame({name: np.array(value) for name, value in notes.items()})
+    return pd.DataFrame({name: np.array(value) for name, value in notes.items()})
 
 raw_notes = midi_to_notes(sample_file)
 raw_notes.head()
@@ -96,8 +104,7 @@ def plot_piano_roll(notes: pd.DataFrame, count: Optional[int] = None):
     plt.figure(figsize=(20, 4))
     plot_pitch = np.stack([notes['pitch'], notes['pitch']], axis=0)
     plot_start_stop = np.stack([notes['start'], notes['end']], axis=0)
-    plt.plot(
-        plot_start_stop[:, :count], plot_pitch[:, :count], color="b", marker=".")
+    plt.plot(plot_start_stop[:, :count], plot_pitch[:, :count], color="b", marker=".")
     plt.xlabel('Time [s]')
     plt.ylabel('Pitch')
     _ = plt.title(title)
@@ -156,7 +163,7 @@ example_pm = notes_to_midi(raw_notes, out_file=example_file, instrument_name=ins
 
 
 # Create the training dataset
-num_files = 5
+num_files = 1
 all_notes = []
 # get the first num_files files
 # for f in filenames[:num_files]:
@@ -243,6 +250,7 @@ learning_rate = 0.005
 inputs = tf.keras.Input(input_shape)
 x = tf.keras.layers.LSTM(128)(inputs)
 
+
 outputs = {
   'pitch': tf.keras.layers.Dense(128, name='pitch')(x),
   'step': tf.keras.layers.Dense(1, name='step')(x),
@@ -288,7 +296,7 @@ callbacks = [
         restore_best_weights=True),
 ]
 
-epochs = 1
+epochs = 50
 
 history = model.fit(
     train_ds,
@@ -328,14 +336,20 @@ def predict_next_note(
 
   return int(pitch), float(step), float(duration)
 
-temperature = 1.3
+temperature = 1.0
 num_predictions = 520
 
 sample_notes = np.stack([raw_notes[key] for key in key_order], axis=1)
 
+out_file = 'raw_notes.mid'
+out_pm = notes_to_midi(raw_notes, out_file=out_file, instrument_name=instrument_name)
+
 # The initial sequence of notes; pitch is normalized similar to training
 # sequences
 input_notes = (sample_notes[:seq_length] / np.array([vocab_size, 1, 1]))
+
+out_file_input_notes = 'sequence_notes.mid'
+out_pm = notes_to_midi(raw_notes[:seq_length], out_file=out_file_input_notes, instrument_name=instrument_name)
 
 generated_notes = []
 prev_start = 0
