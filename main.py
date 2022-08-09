@@ -1,5 +1,7 @@
 import collections
 import datetime
+import itertools
+from re import X
 import fluidsynth
 import glob
 import numpy as np
@@ -24,7 +26,7 @@ np.random.seed(seed)
 # Sampling rate for audio playback
 _SAMPLING_RATE = 16000
 
-data_dir = pathlib.Path('data/maestro-v2.0.0')
+data_dir = pathlib.Path('data/maestro-v2.0.0') 
 if not data_dir.exists():
     tf.keras.utils.get_file(
         'maestro-v2.0.0-midi.zip',
@@ -33,17 +35,18 @@ if not data_dir.exists():
         cache_dir='.', cache_subdir='data',
     )
 
-filenames = glob.glob(str(data_dir/'**/*.mid*'))
+filenames = glob.glob(str(data_dir/'2004/*.mid*'))   # **/*.mid*
+filenames_alex = glob.glob(str(data_dir/'alex/*.midi'))
 print('Number of files:', len(filenames))
 
-sample_file = filenames[0]
+sample_file = filenames_alex[1]
 
-# get a specific fample file
-for file in filenames:
-    if file == "data\\maestro-v2.0.0\\" + "2013\\ORIG-MIDI_01_7_7_13_Group__MID--AUDIO_12_R1_2013_wav--2.midi":
-        sample_file = file
-        print("FOUND THE FILE")
-        break
+# get a specific sample file
+# for file in filenames:
+#     if file == "data\\maestro-v2.0.0\\" + "alex\\AI_Training_NotePad.midi":
+#         sample_file = file
+#         print("FOUND THE FILE")
+#         break
 
 print(sample_file)
 
@@ -164,17 +167,17 @@ example_pm = notes_to_midi(raw_notes, out_file=example_file, instrument_name=ins
 
 
 # Create the training dataset
-num_files = 1
+num_files = 640
 all_notes = []
 # get the first num_files files
-# for f in filenames[:num_files]:
-#     notes = midi_to_notes(f)                                                                                                                                                              
-#     all_notes.append(notes)
-
-# get all files from a composer
-for f in get_composer_midi("Wolfgang Amadeus Mozart"):
+for f in filenames_alex:# [:num_files]:
     notes = midi_to_notes(f)                                                                                                                                                              
     all_notes.append(notes)
+
+# get all files from a composer
+# for f in get_composer_midi("Franz Liszt")[:num_files]:
+#     notes = midi_to_notes(f)                                                                                                                                                              
+#     all_notes.append(notes)
 
 all_notes = pd.concat(all_notes)
 n_notes = len(all_notes)
@@ -218,6 +221,17 @@ def create_sequences(
   return sequences.map(split_labels, num_parallel_calls=tf.data.AUTOTUNE)
 
 
+seq_length = [32, 32, 32, 32, 32, 32]
+batch_size = [4, 4, 4, 4, 4, 4]
+learning_rate = [0.001, 0.001, 0.001, 0.001, 0.001, 0.001]
+neurons = [32, 64, 128, 254, 512, 1024]
+
+for idx,parameterset in enumerate(list(itertools.product(seq_length, batch_size,learning_rate,neurons))):
+    config.train_pram["seq_length"] = parameterset[0]
+    config.train_pram["batch_size"] = parameterset[1]
+    config.train_pram["learning_rate"] = parameterset[2]
+    config.train_pram["neurons"] = parameterset[3]
+
 for idx in range(len(config.grid_params["seq_length"])):
 
     seq_length = config.grid_params["seq_length"][idx]   # 50
@@ -248,10 +262,18 @@ for idx in range(len(config.grid_params["seq_length"])):
 
 
     input_shape = (seq_length, 3)
+
     learning_rate = config.grid_params["learning_rate"][idx]    # 0.004
 
     inputs = tf.keras.Input(input_shape)
-    x = tf.keras.layers.LSTM(config.grid_params["neurons"][idx])(inputs)   # 128
+
+    x = tf.keras.layers.LSTM(config.grid_params["neurons"][idx], return_sequences=True, stateful=False)(inputs)   # 128
+
+    for neurons in config.grid_params["layers"][idx]:
+        x = tf.keras.layers.LSTM(neurons, return_sequences=True)(x)
+ 
+    x = tf.keras.layers.LSTM(128)(x)    #8
+
 
 
     outputs = {
@@ -260,7 +282,7 @@ for idx in range(len(config.grid_params["seq_length"])):
     'duration': tf.keras.layers.Dense(1, name='duration')(x),
     }
 
-    model = tf.keras.Model(inputs, outputs)
+    model = tf.keras.Model(inputs, outputs, name="music_model_" + str(idx))
 
     loss = {
         'pitch': tf.keras.losses.SparseCategoricalCrossentropy(
@@ -283,7 +305,7 @@ for idx in range(len(config.grid_params["seq_length"])):
 
     model.compile(loss=loss, optimizer=optimizer)
 
-    #model.summary()
+    model.summary()
 
     # losses = model.evaluate(train_ds, return_dict=True)
     # print(losses)
@@ -291,18 +313,20 @@ for idx in range(len(config.grid_params["seq_length"])):
     callbacks = [
         tf.keras.callbacks.EarlyStopping(
             monitor='loss',
-            patience=10,
+            patience=100,
             verbose=1,
             restore_best_weights=True),
     ]
 
-    epochs = 3000
-
-    history = model.fit(
-        train_ds,
-        epochs=epochs,
-        callbacks=callbacks,
-    )
+    epochs = 1000
+    try:
+        history = model.fit(
+            train_ds,
+            epochs=epochs,
+            callbacks=callbacks,
+        )
+    except KeyboardInterrupt:
+        pass
 
     # Plot the train loss
     # plt.plot(history.epoch, history.history['loss'], label='total loss')
@@ -337,7 +361,7 @@ for idx in range(len(config.grid_params["seq_length"])):
         return int(pitch), float(step), float(duration)
 
     temperature = 1.5
-    num_predictions = 100
+    num_predictions = 2*seq_length
 
     sample_notes = np.stack([raw_notes[key] for key in key_order], axis=1)
 

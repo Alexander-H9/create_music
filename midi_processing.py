@@ -29,7 +29,7 @@ def midi_to_notes(midi_file: str) -> pd.DataFrame:
     return pd.DataFrame({name: np.array(value) for name, value in notes.items()})
 
 
-def notes_to_midi(notes: pd.DataFrame,out_file: str, instrument_name: str,velocity: int = 100,) -> pretty_midi.PrettyMIDI:  # velocity=note loudnes
+def notes_to_midi(notes: pd.DataFrame,out_file: str, instrument_name: str,velocity: int = 100, save=False) -> pretty_midi.PrettyMIDI:  # velocity=note loudnes
 
     pm = pretty_midi.PrettyMIDI()
     instrument = pretty_midi.Instrument(program=pretty_midi.instrument_name_to_program(instrument_name))
@@ -43,7 +43,8 @@ def notes_to_midi(notes: pd.DataFrame,out_file: str, instrument_name: str,veloci
         prev_start = start
 
     pm.instruments.append(instrument)
-    pm.write(out_file)
+    if save:
+        pm.write(out_file)
     return pm
 
 
@@ -83,3 +84,4 @@ def plot_loss(history, path):
     plt.clf()
     plt.plot(history.epoch, history.history['loss'], label='total loss')
     plt.savefig(path+"/train_loss.png")
+    plt.close()
