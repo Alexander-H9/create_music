@@ -17,6 +17,9 @@ from typing import Dict, List, Optional, Sequence, Tuple
 
 from read_composer import get_composer_midi
 from config import Config
+from config_params import settings
+from midi_processing import midi_to_notes
+from midi_processing import notes_to_midi
 config = Config()
 
 seed = 42
@@ -26,6 +29,10 @@ np.random.seed(seed)
 # Sampling rate for audio playback
 _SAMPLING_RATE = 16000
 
+# print(datetime.datetime.now().strftime("%d_%m_%y_%H:%M"))
+# exit()
+
+# Download the dataset
 data_dir = pathlib.Path('data/maestro-v2.0.0') 
 if not data_dir.exists():
     tf.keras.utils.get_file(
@@ -37,6 +44,7 @@ if not data_dir.exists():
 
 filenames = glob.glob(str(data_dir/'2004/*.mid*'))   # **/*.mid*
 filenames_alex = glob.glob(str(data_dir/'alex/*.midi'))
+filenames_alex = glob.glob(str(data_dir/settings.data.source))
 print('Number of files:', len(filenames))
 
 sample_file = filenames_alex[1]
@@ -71,26 +79,6 @@ instrument_name = pretty_midi.program_to_instrument_name(instrument.program)
 #   print(f'{i}: pitch={note.pitch}, note_name={note_name},'
 #         f' duration={duration:.4f}')
 
-def midi_to_notes(midi_file: str) -> pd.DataFrame:
-    pm = pretty_midi.PrettyMIDI(midi_file)
-    instrument = pm.instruments[0]
-    notes = collections.defaultdict(list)
-
-  # Sort the notes by start time
-    sorted_notes = sorted(instrument.notes, key=lambda note: note.start)
-    prev_start = sorted_notes[0].start
-
-    for note in sorted_notes:
-        start = note.start
-        end = note.end
-        notes['pitch'].append(note.pitch)
-        notes['start'].append(start)
-        notes['end'].append(end)
-        notes['step'].append(start - prev_start)
-        notes['duration'].append(end - start)
-        prev_start = start
-
-    return pd.DataFrame({name: np.array(value) for name, value in notes.items()})
 
 raw_notes = midi_to_notes(sample_file)
 raw_notes.head()
@@ -98,72 +86,6 @@ raw_notes.head()
 get_note_names = np.vectorize(pretty_midi.note_number_to_name)
 sample_note_names = get_note_names(raw_notes['pitch'])
 sample_note_names[:10]
-
-def plot_piano_roll(notes: pd.DataFrame, count: Optional[int] = None):
-    if count:
-        title = f'First {count} notes'
-    else:
-        title = f'Whole track'
-        count = len(notes['pitch'])
-    plt.figure(figsize=(20, 4))
-    plot_pitch = np.stack([notes['pitch'], notes['pitch']], axis=0)
-    plot_start_stop = np.stack([notes['start'], notes['end']], axis=0)
-    plt.plot(plot_start_stop[:, :count], plot_pitch[:, :count], color="b", marker=".")
-    plt.xlabel('Time [s]')
-    plt.ylabel('Pitch')
-    _ = plt.title(title)
-    plt.show()
-
-
-#plot_piano_roll(raw_notes)
-
-def plot_distributions(notes: pd.DataFrame, drop_percentile=2.5):
-    plt.figure(figsize=[15, 5])
-    plt.subplot(1, 3, 1)
-    sns.histplot(notes, x="pitch", bins=20)
-
-    plt.subplot(1, 3, 2)
-    max_step = np.percentile(notes['step'], 100 - drop_percentile)
-    sns.histplot(notes, x="step", bins=np.linspace(0, max_step, 21))
-
-    plt.subplot(1, 3, 3)
-    max_duration = np.percentile(notes['duration'], 100 - drop_percentile)
-    sns.histplot(notes, x="duration", bins=np.linspace(0, max_duration, 21))
-    plt.show()
-
-#plot_distributions(raw_notes)
-
-def notes_to_midi(
-    notes: pd.DataFrame,
-    out_file: str, 
-    instrument_name: str,
-    velocity: int = 100,  # note loudness
-    ) -> pretty_midi.PrettyMIDI:
-
-    pm = pretty_midi.PrettyMIDI()
-    instrument = pretty_midi.Instrument(
-        program=pretty_midi.instrument_name_to_program(
-            instrument_name))
-
-    prev_start = 0
-    for i, note in notes.iterrows():
-        start = float(prev_start + note['step'])
-        end = float(start + note['duration'])
-        note = pretty_midi.Note(
-            velocity=velocity,
-            pitch=int(note['pitch']),
-            start=start,
-            end=end,
-        )
-        instrument.notes.append(note)
-        prev_start = start
-
-    pm.instruments.append(instrument)
-    pm.write(out_file)
-    return pm
-
-example_file = 'example.midi'
-example_pm = notes_to_midi(raw_notes, out_file=example_file, instrument_name=instrument_name)
 
 
 # Create the training dataset
@@ -318,11 +240,10 @@ for idx in range(len(config.grid_params["seq_length"])):
             restore_best_weights=True),
     ]
 
-    epochs = 1000
     try:
         history = model.fit(
             train_ds,
-            epochs=epochs,
+            epochs=settings.training.epochs,
             callbacks=callbacks,
         )
     except KeyboardInterrupt:
@@ -360,8 +281,10 @@ for idx in range(len(config.grid_params["seq_length"])):
 
         return int(pitch), float(step), float(duration)
 
-    temperature = 1.5
-    num_predictions = 2*seq_length
+    # temperature = 1.5
+    # num_predictions = 2*seq_length
+    temperature = settings.composition.temperature
+    num_predictions = settings.composition.num_predictions
 
     sample_notes = np.stack([raw_notes[key] for key in key_order], axis=1)
 
@@ -397,5 +320,5 @@ for idx in range(len(config.grid_params["seq_length"])):
     # plot_distributions(generated_notes)
 
 
-
-    config.save_training("Checkpoints_" + str(idx), input_pm, out_pm, model, history, generated_notes, raw_notes)
+    # "Checkpoints_" + str(idx)
+    config.save_training("Checkpoints/" + datetime.datetime.now().strftime("%d_%m_%y_%H-%M"), input_pm, out_pm, model, history, generated_notes, raw_notes)

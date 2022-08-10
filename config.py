@@ -12,11 +12,11 @@ class Config:
 
     def __init__(self):
         self.grid_params = {
-        "seq_length":[300, 500],  # 8, 16, 32, 50, 80, 100
-        "batch_size":[32, 128], # 64, 64, 64, 64, 64, 64
-        "learning_rate":[ 0.004, 0.004], # 0.003, 0.004, 0.004, 0.004, 0.004, 0.004
-        "neurons":[ 128, 512],   #32, 64, 128, 254, 512, 1024 32, 64,
-        "layers": [ [128], [512]], # [128, 64, 32], [128, 64, 32, 32], [8,8,8,8,8], [64, 64, 64, 64],
+        "seq_length":[25],  # 8, 16, 32, 50, 80, 100
+        "batch_size":[32], # 64, 64, 64, 64, 64, 64
+        "learning_rate":[ 0.004], # 0.003, 0.004, 0.004, 0.004, 0.004, 0.004
+        "neurons":[ 128],   #32, 64, 128, 254, 512, 1024 32, 64,
+        "layers": [[128]], # [128, 64, 32], [128, 64, 32, 32], [8,8,8,8,8], [64, 64, 64, 64],
         "composer":["all", "alex", "Wolfgang Amadeus Mozart", "Sergei Rachmaninoff", "Ludwig van Beethoven", "Johann Sebastian Bach", "Johannes Brahms"]
         }
         self.train_pram = {}
@@ -33,7 +33,7 @@ class Config:
             outfile.write(json_object)
 
         # Save the trained model
-        if model!=None: 
+        if model != None: 
             model.save(path + '/model')
             tf.keras.utils.plot_model(model, path + "/model.png", show_shapes=True, dpi=180)
 

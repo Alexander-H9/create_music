@@ -1,0 +1,22 @@
+training:
+  seq_length: 300
+  batch_size: 32
+  learning_rate: 0.004
+  neurons: 128
+  layers: [128, 512]
+  epochs: 5
+  patience: 3
+
+  grid_seq_length: [300, 500]
+  grid_batch_size: [32, 128]
+  grid_learning_rate: [0.004, 0.006]
+  grid_neurons: [128, 512]
+  grid_layers: [[128], [512]]
+
+data:
+  source: alex/*.midi
+  composer: ["all", "alex", "Wolfgang Amadeus Mozart", "Sergei Rachmaninoff", "Ludwig van Beethoven", "Johann Sebastian Bach", "Johannes Brahms"]
+
+composition:
+  temperature: 1.5
+  num_predictions: 80
